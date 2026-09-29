@@ -1,0 +1,228 @@
+name: Build llama.cpp
+
+on:
+  workflow_dispatch:
+    inputs:
+      llama_ref:
+        description: "llama.cpp branch, tag, or commit"
+        required: false
+        default: "master"
+
+  schedule:
+    - cron: "0 18 * * *" # 01:00 Vietnam time
+
+permissions:
+  contents: read
+
+env:
+  LLAMA_REPO: https://github.com/ggml-org/llama.cpp.git
+  LLAMA_REF: master
+
+jobs:
+
+  # ==========================================================
+  # Windows CPU
+  # ==========================================================
+
+  windows-cpu:
+    name: Windows x64 CPU
+    runs-on: windows-2022
+
+    steps:
+      - name: Clone llama.cpp
+        shell: pwsh
+        run: |
+          $ref = "${{ github.event.inputs.llama_ref || env.LLAMA_REF }}"
+
+          git clone `
+            --depth 1 `
+            --branch "$ref" `
+            "$env:LLAMA_REPO" `
+            llama.cpp
+
+          $commit = git -C llama.cpp rev-parse HEAD
+
+          "LLAMA_COMMIT=$commit" >> $env:GITHUB_ENV
+
+          Write-Host "llama.cpp commit: $commit"
+
+      - name: Install Ninja
+        shell: pwsh
+        run: |
+          choco install ninja -y
+
+      - name: Configure
+        shell: pwsh
+        run: |
+          cmake `
+            -S llama.cpp `
+            -B build `
+            -G "Ninja Multi-Config" `
+            -DGGML_BACKEND_DL=ON `
+            -DGGML_NATIVE=OFF `
+            -DGGML_CPU=ON `
+            -DLLAMA_BUILD_TESTS=OFF `
+            -DLLAMA_BUILD_EXAMPLES=ON
+
+      - name: Build
+        shell: pwsh
+        run: |
+          cmake `
+            --build build `
+            --config Release `
+            --parallel `
+            --target llama-cli llama-server
+
+      - name: Smoke test
+        shell: pwsh
+        run: |
+          .\build\bin\Release\llama-cli.exe --version
+          .\build\bin\Release\llama-server.exe --version
+
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist\llama-windows-x64-cpu
+
+          Copy-Item `
+            build\bin\Release\* `
+            dist\llama-windows-x64-cpu\ `
+            -Recurse `
+            -Force
+
+          Copy-Item `
+            llama.cpp\LICENSE `
+            dist\llama-windows-x64-cpu\
+
+          Set-Content `
+            dist\llama-windows-x64-cpu\BUILD.txt `
+            @"
+          llama.cpp commit: $env:LLAMA_COMMIT
+          backend: CPU
+          platform: Windows x64
+          "@
+
+          7z a `
+            llama-windows-x64-cpu.zip `
+            .\dist\llama-windows-x64-cpu\*
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: llama-windows-x64-cpu
+          path: llama-windows-x64-cpu.zip
+
+
+  # ==========================================================
+  # Windows CUDA 12.4
+  # ==========================================================
+
+  windows-cuda:
+    name: Windows x64 CUDA 12.4
+    runs-on: windows-2022
+
+    steps:
+      - name: Clone llama.cpp
+        shell: pwsh
+        run: |
+          $ref = "${{ github.event.inputs.llama_ref || env.LLAMA_REF }}"
+
+          git clone `
+            --depth 1 `
+            --branch "$ref" `
+            "$env:LLAMA_REPO" `
+            llama.cpp
+
+          $commit = git -C llama.cpp rev-parse HEAD
+
+          "LLAMA_COMMIT=$commit" >> $env:GITHUB_ENV
+
+          Write-Host "llama.cpp commit: $commit"
+
+      # Use llama.cpp's own CUDA 12.4 setup action.
+      - name: Install CUDA 12.4
+        uses: ./llama.cpp/.github/actions/windows-setup-cuda
+        with:
+          cuda_version: "12.4"
+          cuda_arch: "x64"
+
+      - name: Install Ninja
+        shell: pwsh
+        run: |
+          choco install ninja -y
+
+      - name: Check CUDA
+        shell: pwsh
+        run: |
+          nvcc --version
+          Write-Host "CUDA_PATH=$env:CUDA_PATH"
+
+      - name: Configure
+        shell: pwsh
+        run: |
+          cmake `
+            -S llama.cpp `
+            -B build `
+            -G "Ninja Multi-Config" `
+            -DGGML_BACKEND_DL=ON `
+            -DGGML_NATIVE=OFF `
+            -DGGML_CPU=OFF `
+            -DGGML_CUDA=ON `
+            -DGGML_CUDA_CUB_3DOT2=ON `
+            -DLLAMA_BUILD_TESTS=OFF `
+            -DLLAMA_BUILD_EXAMPLES=ON
+
+      - name: Build
+        shell: pwsh
+        run: |
+          cmake `
+            --build build `
+            --config Release `
+            --parallel `
+            --target llama-cli llama-server
+
+      - name: Smoke test
+        shell: pwsh
+        run: |
+          .\build\bin\Release\llama-cli.exe --version
+          .\build\bin\Release\llama-server.exe --version
+
+      - name: Check CUDA backend
+        shell: pwsh
+        run: |
+          Get-ChildItem build\bin\Release\*cuda* -ErrorAction SilentlyContinue
+
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist\llama-windows-x64-cuda12.4
+
+          Copy-Item `
+            build\bin\Release\* `
+            dist\llama-windows-x64-cuda12.4\ `
+            -Recurse `
+            -Force
+
+          Copy-Item `
+            llama.cpp\LICENSE `
+            dist\llama-windows-x64-cuda12.4\
+
+          Set-Content `
+            dist\llama-windows-x64-cuda12.4\BUILD.txt `
+            @"
+          llama.cpp commit: $env:LLAMA_COMMIT
+          backend: CUDA
+          CUDA version: 12.4
+          architecture: x64
+          GPU target: Ada Lovelace / SM 89
+          "@
+
+          7z a `
+            llama-windows-x64-cuda12.4.zip `
+            .\dist\llama-windows-x64-cuda12.4\*
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: llama-windows-x64-cuda12.4
+          path: llama-windows-x64-cuda12.4.zip
