@@ -59,6 +59,7 @@ jobs:
             -B build `
             -G "Ninja Multi-Config" `
             -DGGML_BACKEND_DL=ON `
+            -DBUILD_SHARED_LIBS=ON `
             -DGGML_NATIVE=OFF `
             -DGGML_CPU=ON `
             -DLLAMA_BUILD_TESTS=OFF `
@@ -165,6 +166,7 @@ jobs:
             -B build `
             -G "Ninja Multi-Config" `
             -DGGML_BACKEND_DL=ON `
+            -DBUILD_SHARED_LIBS=ON `
             -DGGML_NATIVE=OFF `
             -DGGML_CPU=OFF `
             -DGGML_CUDA=ON `
