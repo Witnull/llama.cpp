@@ -8,9 +8,6 @@ on:
         required: false
         default: "master"
 
-  schedule:
-    - cron: "0 18 * * *" # 01:00 Vietnam time
-
 permissions:
   contents: read
 
