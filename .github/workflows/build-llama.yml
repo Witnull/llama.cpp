@@ -70,7 +70,6 @@ jobs:
             -DGGML_BACKEND_DL=ON `
             -DBUILD_SHARED_LIBS=ON `
             -DGGML_NATIVE=OFF `
-            -DGGML_CPU=OFF `
             -DGGML_CUDA=ON `
             -DGGML_CUDA_CUB_3DOT2=ON `
             -DLLAMA_BUILD_TESTS=OFF `
@@ -166,7 +165,6 @@ jobs:
             -DGGML_BACKEND_DL=ON \
             -DBUILD_SHARED_LIBS=ON \
             -DGGML_NATIVE=OFF \
-            -DGGML_CPU=OFF \
             -DGGML_CUDA=ON \
             -DGGML_CUDA_CUB_3DOT2=ON \
             -DLLAMA_BUILD_TESTS=OFF \
