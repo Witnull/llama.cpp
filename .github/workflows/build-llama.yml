@@ -125,7 +125,7 @@ jobs:
             }
           }
 
-          # Remove any intermediate .lib or .exp files if present so the distribution stays clean.
+          # Remove any intermediate .lib, .exp, or .pdb files so the distribution stays clean.
           Get-ChildItem -Path $dist -Include *.lib, *.exp, *.pdb -Recurse | Remove-Item -Force -ErrorAction SilentlyContinue
 
           # CUDA 12 runtime DLLs needed by ggml-cuda.
@@ -187,7 +187,7 @@ jobs:
   # ==========================================================
   linux-cuda:
     name: Linux x64 CUDA 12.4
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-22.04
 
     steps:
       - name: Checkout llama.cpp
@@ -220,6 +220,7 @@ jobs:
         with:
           cuda: "12.4.1"
           method: network
+          subpackages: "cuda-compiler-12-4,cuda-cudart-dev-12-4,libcublas-dev-12-4"
 
       - name: Verify build environment
         run: |
