@@ -84,14 +84,27 @@ static __global__ void lightning_indexer_kernel_mma(
             }
         }
     } else {
+#ifdef FP16_AVAILABLE
         constexpr dequantize_V_t dequantize_k = get_dequantize_V<TYPE_K, half, 4>();
+#else
+        constexpr dequantize_V_t dequantize_k = get_dequantize_V<TYPE_K, float, 4>();
+#endif
         for (int i = tid; i < N_K_VEC; i += THREADS_PER_BLOCK) {
             const int i_k_vec = i / (N_EMBD / 4);
             const int i_embd4 = i % (N_EMBD / 4);
             const int i_kv    = start_kv + i_k_vec;
             if (i_kv < n_kv) {
                 const void * k_ptr = (const void *) ((const char *) K + i_kv*nbk2 + i_stream*nbk3);
+#ifdef FP16_AVAILABLE
                 dequantize_k(k_ptr, &k_shared[i_k_vec][i_embd4*4], i_embd4*4);
+#else
+                float4 tmp;
+                dequantize_k(k_ptr, &tmp, i_embd4*4);
+                k_shared[i_k_vec][i_embd4*4 + 0] = (half) tmp.x;
+                k_shared[i_k_vec][i_embd4*4 + 1] = (half) tmp.y;
+                k_shared[i_k_vec][i_embd4*4 + 2] = (half) tmp.z;
+                k_shared[i_k_vec][i_embd4*4 + 3] = (half) tmp.w;
+#endif
             } else {
                 *(int2 *) &k_shared[i_k_vec][i_embd4*4] = make_int2(0, 0);
             }
