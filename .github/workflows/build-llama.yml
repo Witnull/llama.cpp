@@ -1,4 +1,5 @@
-name: Build llama.cpp (CUDA 12.4)
+
+{`name: Build llama.cpp (CUDA 12.4)
 
 on:
   workflow_dispatch:
@@ -13,9 +14,6 @@ permissions:
   contents: read
 
 jobs:
-  # ==========================================================
-  # Windows x64 CUDA 12.4
-  # ==========================================================
   windows-cuda:
     name: Windows x64 CUDA 12.4
     runs-on: windows-2022
@@ -25,22 +23,20 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: ggml-org/llama.cpp
-          ref: ${{ inputs.llama_ref }}
+          ref: \${{ inputs.llama_ref }}
           path: llama.cpp
           fetch-depth: 1
 
       - name: Record llama.cpp commit
         shell: pwsh
         env:
-          LLAMA_REF_INPUT: ${{ inputs.llama_ref }}
+          LLAMA_REF_INPUT: \${{ inputs.llama_ref }}
         run: |
           $commit = (git -C llama.cpp rev-parse HEAD).Trim()
           @(
             "LLAMA_COMMIT=$commit"
             "LLAMA_REF=$env:LLAMA_REF_INPUT"
           ) | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          Write-Host "llama.cpp ref: $env:LLAMA_REF_INPUT"
-          Write-Host "llama.cpp commit: $commit"
 
       - name: Setup MSVC developer environment
         uses: ilammy/msvc-dev-cmd@v1
@@ -53,18 +49,17 @@ jobs:
           cuda_version: "12.4"
           cuda_arch: "x64"
 
-      - name: Install Ninja
+      - name: Install Ninja and 7-Zip
         shell: pwsh
         run: choco install ninja 7zip -y --no-progress
 
-      - name: Verify build environment
+      - name: Verify environment
         shell: pwsh
         run: |
-          Get-Command cl.exe | Format-List Source
+          cl.exe
           cmake --version
           ninja --version
           nvcc --version
-          Write-Host "CUDA_PATH=$env:CUDA_PATH"
 
       - name: Configure CMake
         shell: pwsh
@@ -79,6 +74,7 @@ jobs:
             -DGGML_CPU=ON `
             -DGGML_CPU_ALL_VARIANTS=ON `
             -DGGML_CUDA=ON `
+            -DCMAKE_CUDA_ARCHITECTURES="60-virtual;61-virtual;70-virtual;75-virtual;80-virtual;86-real;89-real;90-virtual" `
             -DGGML_CUDA_CCCL_VERSION=v3.4.3 `
             -DGGML_CUDA_NCCL=OFF `
             -DLLAMA_BUILD_TESTS=OFF `
@@ -96,26 +92,19 @@ jobs:
       - name: Package and smoke test
         shell: pwsh
         run: |
-          $dist = Join-Path $PWD "dist\llama-windows-x64-cuda12.4"
+          $dist = Join-Path $PWD "dist\\llama-windows-x64-cuda12.4"
           New-Item -ItemType Directory -Force -Path $dist | Out-Null
 
-          # Include executables, DLLs, and dynamically loaded GGML backends.
-          Copy-Item -Path "build\bin\Release\*" -Destination $dist -Recurse -Force
-          Copy-Item -Path "llama.cpp\LICENSE" -Destination $dist -Force
+          Copy-Item -Path "build\\bin\\Release\\*" -Destination $dist -Recurse -Force
+          Copy-Item -Path "llama.cpp\\LICENSE" -Destination $dist -Force
 
-          # CUDA 12 runtime DLLs needed by ggml-cuda.
           $cudaBin = Join-Path $env:CUDA_PATH "bin"
-          $runtimeDlls = @(
-            "cudart64_12.dll",
-            "cublas64_12.dll",
-            "cublasLt64_12.dll"
-          )
-          foreach ($dll in $runtimeDlls) {
+          foreach ($dll in @("cudart64_12.dll", "cublas64_12.dll", "cublasLt64_12.dll")) {
             $source = Join-Path $cudaBin $dll
             if (-not (Test-Path $source)) {
               throw "Required CUDA runtime DLL not found: $source"
             }
-            Copy-Item -Path $source -Destination $dist -Force
+            Copy-Item $source $dist -Force
           }
 
           @"
@@ -124,25 +113,21 @@ jobs:
           backend: CUDA
           CUDA version: 12.4
           architecture: Windows x64
-          "@ | Set-Content -Path (Join-Path $dist "BUILD.txt") -Encoding utf8
+          "@ | Set-Content (Join-Path $dist "BUILD.txt")
 
-          # Test the packaged executables with the packaged CUDA DLLs on PATH.
           $env:PATH = "$dist;$env:PATH"
-          & (Join-Path $dist "llama-cli.exe") --version
-          if ($LASTEXITCODE -ne 0) { throw "llama-cli smoke test failed" }
-          & (Join-Path $dist "llama-server.exe") --version
-          if ($LASTEXITCODE -ne 0) { throw "llama-server smoke test failed" }
+          & "$dist\\llama-cli.exe" --version
+          if ($LASTEXITCODE -ne 0) { throw "llama-cli failed" }
+          & "$dist\\llama-server.exe" --version
+          if ($LASTEXITCODE -ne 0) { throw "llama-server failed" }
 
-          # Create exactly one ZIP archive. Upload-artifact is configured below
-          # to upload this file as-is rather than wrapping it in another ZIP.
-          $archive = Join-Path $env:GITHUB_WORKSPACE "llama-windows-x64-cuda12.4.zip"
-          if (Test-Path $archive) { Remove-Item $archive -Force }
+          $archive = "$env:GITHUB_WORKSPACE\\llama-windows-x64-cuda12.4.zip"
           Push-Location $dist
           try {
-            & 7z a -tzip -mx=9 -snl $archive ".\*"
+            7z a -tzip -mx=9 $archive ".\\*"
             if ($LASTEXITCODE -ne 0) { throw "7z packaging failed" }
-            & 7z t $archive
-            if ($LASTEXITCODE -ne 0) { throw "ZIP archive validation failed" }
+            7z t $archive
+            if ($LASTEXITCODE -ne 0) { throw "ZIP validation failed" }
           }
           finally {
             Pop-Location
@@ -156,9 +141,6 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  # ==========================================================
-  # Linux x64 CUDA 12.4
-  # ==========================================================
   linux-cuda:
     name: Linux x64 CUDA 12.4
     runs-on: ubuntu-22.04
@@ -168,20 +150,18 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: ggml-org/llama.cpp
-          ref: ${{ inputs.llama_ref }}
+          ref: \${{ inputs.llama_ref }}
           path: llama.cpp
           fetch-depth: 1
 
       - name: Record llama.cpp commit
         shell: bash
         env:
-          LLAMA_REF_INPUT: ${{ inputs.llama_ref }}
+          LLAMA_REF_INPUT: \${{ inputs.llama_ref }}
         run: |
           COMMIT="$(git -C llama.cpp rev-parse HEAD)"
           echo "LLAMA_COMMIT=$COMMIT" >> "$GITHUB_ENV"
           echo "LLAMA_REF=$LLAMA_REF_INPUT" >> "$GITHUB_ENV"
-          echo "llama.cpp ref: $LLAMA_REF_INPUT"
-          echo "llama.cpp commit: $COMMIT"
 
       - name: Install system dependencies
         run: |
@@ -194,36 +174,36 @@ jobs:
           cuda: "12.4.1"
           method: network
 
-      - name: Verify build environment
+      - name: Verify environment
         run: |
           nvcc --version
           gcc --version
           cmake --version
           ninja --version
           7z
-          echo "CUDA_PATH=$CUDA_PATH"
 
       - name: Configure CMake
         run: |
-          cmake \
-            -S llama.cpp \
-            -B build \
-            -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_INSTALL_RPATH='$ORIGIN' \
-            -DCMAKE_BUILD_WITH_INSTALL_RPATH=ON \
-            -DBUILD_SHARED_LIBS=ON \
-            -DGGML_BACKEND_DL=ON \
-            -DGGML_NATIVE=OFF \
-            -DGGML_CPU=ON \
-            -DGGML_CPU_ALL_VARIANTS=ON \
-            -DGGML_CUDA=ON \
-            -DGGML_CUDA_CCCL_VERSION=v3.4.3 \
-            -DGGML_CUDA_NCCL=OFF \
-            -DLLAMA_BUILD_TESTS=OFF \
-            -DLLAMA_BUILD_TOOLS=ON \
-            -DLLAMA_BUILD_SERVER=ON \
-            -DLLAMA_BUILD_EXAMPLES=OFF \
+          cmake \\
+            -S llama.cpp \\
+            -B build \\
+            -G Ninja \\
+            -DCMAKE_BUILD_TYPE=Release \\
+            -DCMAKE_INSTALL_RPATH='$ORIGIN' \\
+            -DCMAKE_BUILD_WITH_INSTALL_RPATH=ON \\
+            -DBUILD_SHARED_LIBS=ON \\
+            -DGGML_BACKEND_DL=ON \\
+            -DGGML_NATIVE=OFF \\
+            -DGGML_CPU=ON \\
+            -DGGML_CPU_ALL_VARIANTS=ON \\
+            -DGGML_CUDA=ON \\
+            -DCMAKE_CUDA_ARCHITECTURES="60-virtual;61-virtual;70-virtual;75-virtual;80-virtual;86-real;89-real;90-virtual" \\
+            -DGGML_CUDA_CCCL_VERSION=v3.4.3 \\
+            -DGGML_CUDA_NCCL=OFF \\
+            -DLLAMA_BUILD_TESTS=OFF \\
+            -DLLAMA_BUILD_TOOLS=ON \\
+            -DLLAMA_BUILD_SERVER=ON \\
+            -DLLAMA_BUILD_EXAMPLES=OFF \\
             -DLLAMA_BUILD_APP=OFF
 
       - name: Build
@@ -238,17 +218,16 @@ jobs:
           DIST="dist/llama-linux-x64-cuda12.4"
           mkdir -p "$DIST"
 
-          # Copy executables, shared libraries, and dynamically loaded backends.
           cp -a build/bin/. "$DIST/"
           cp llama.cpp/LICENSE "$DIST/"
 
-          # Bundle the CUDA runtime libraries required by ggml-cuda.
-          CUDA_ROOT="${CUDA_PATH:-$(dirname "$(dirname "$(readlink -f "$(command -v nvcc)")")")}"
+          CUDA_ROOT="\${CUDA_PATH:-$(dirname "$(dirname "$(readlink -f "$(command -v nvcc)")")")}"
           CUDA_LIB_DIR="$CUDA_ROOT/lib64"
+
           for lib in libcudart.so.12 libcublas.so.12 libcublasLt.so.12; do
             source="$CUDA_LIB_DIR/$lib"
             if [[ ! -e "$source" ]]; then
-              echo "Required CUDA runtime library not found: $source" >&2
+              echo "Missing CUDA library: $source" >&2
               exit 1
             fi
             cp -L "$source" "$DIST/$lib"
@@ -262,14 +241,12 @@ jobs:
           architecture: Linux x64
           EOF
 
-          # Test the packaged binaries with the bundled CUDA runtime libraries.
-          export LD_LIBRARY_PATH="$PWD/$DIST${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          export LD_LIBRARY_PATH="$PWD/$DIST\${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
           "$DIST/llama-cli" --version
           "$DIST/llama-server" --version
 
-          # Match the Windows package format and avoid a nested artifact ZIP.
           ARCHIVE="$GITHUB_WORKSPACE/llama-linux-x64-cuda12.4.zip"
-          (cd "$DIST" && 7z a -tzip -mx=9 -snl "$ARCHIVE" *)
+          (cd "$DIST" && 7z a -tzip -mx=9 "$ARCHIVE" *)
           7z t "$ARCHIVE"
 
       - name: Upload artifact
@@ -278,4 +255,4 @@ jobs:
           path: llama-linux-x64-cuda12.4.zip
           archive: false
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 14`}
