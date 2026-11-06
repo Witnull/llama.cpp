@@ -22,7 +22,7 @@ jobs:
 
     steps:
       - name: Checkout llama.cpp
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: ggml-org/llama.cpp
           ref: ${{ inputs.llama_ref || 'master' }}
@@ -69,37 +69,42 @@ jobs:
       - name: Configure CMake
         shell: pwsh
         run: |
+          # Note: All arguments containing dots (.) or semicolons (;) MUST be single-quoted
+          # in pwsh so PowerShell does not split v3.4.3 into 'v3' and '.4.3'.
+          # lightning-indexer instantiates half dequantizers; FP16_AVAILABLE starts at sm_60.
           cmake `
             -S llama.cpp `
             -B build `
             -G "Ninja Multi-Config" `
-            -DBUILD_SHARED_LIBS=ON `
-            -DGGML_BACKEND_DL=ON `
-            -DGGML_NATIVE=OFF `
-            -DGGML_CPU=ON `
-            -DGGML_CPU_ALL_VARIANTS=ON `
-            -DGGML_CUDA=ON `
-            -DCMAKE_CUDA_ARCHITECTURES="60-virtual;61-virtual;70-virtual;75-virtual;80-virtual;86-real;89-real;90-virtual" `
-            -DGGML_CUDA_CCCL_VERSION=v3.4.3 `
-            -DGGML_CUDA_NCCL=OFF `
-            -DLLAMA_BUILD_TESTS=OFF `
-            -DLLAMA_BUILD_TOOLS=ON `
-            -DLLAMA_BUILD_SERVER=ON `
-            -DLLAMA_BUILD_EXAMPLES=OFF `
-            -DLLAMA_BUILD_APP=OFF `
-            -DLLAMA_BUILD_BORINGSSL=ON `
-            -DLLAMA_OPENSSL=OFF
+            '-DBUILD_SHARED_LIBS=ON' `
+            '-DGGML_BACKEND_DL=ON' `
+            '-DGGML_NATIVE=OFF' `
+            '-DGGML_CPU=ON' `
+            '-DGGML_CPU_ALL_VARIANTS=ON' `
+            '-DGGML_CUDA=ON' `
+            '-DCMAKE_CUDA_ARCHITECTURES=60-virtual;61-virtual;70-virtual;75-virtual;80-virtual;86-real;89-real;90-virtual' `
+            '-DGGML_CUDA_CCCL_VERSION=v3.4.3' `
+            '-DGGML_CUDA_NCCL=OFF' `
+            '-DLLAMA_BUILD_TESTS=OFF' `
+            '-DLLAMA_BUILD_TOOLS=ON' `
+            '-DLLAMA_BUILD_SERVER=ON' `
+            '-DLLAMA_BUILD_EXAMPLES=OFF' `
+            '-DLLAMA_BUILD_APP=OFF' `
+            '-DLLAMA_BUILD_BORINGSSL=ON' `
+            '-DLLAMA_OPENSSL=OFF'
 
       - name: Build
         shell: pwsh
         run: |
-          # Build all enabled targets so dynamic backend modules (ggml-cuda, ggml-cpu-*)
-          # are compiled alongside llama-cli and llama-server.
+          # Build all enabled targets so dynamic backend MODULEs (ggml-cuda.dll, ggml-cpu-*.dll)
+          # are compiled alongside llama-cli.exe and llama-server.exe.
           cmake --build build --config Release --parallel
 
       - name: Package and smoke test
         shell: pwsh
         run: |
+          $ErrorActionPreference = "Stop"
+
           $dist = Join-Path $PWD "dist\llama-windows-x64-cuda12.4"
           New-Item -ItemType Directory -Force -Path $dist | Out-Null
 
@@ -107,10 +112,21 @@ jobs:
           Copy-Item -Path "build\bin\Release\*" -Destination $dist -Recurse -Force
           Copy-Item -Path "llama.cpp\LICENSE" -Destination $dist -Force
 
-          # Verify ggml-cuda.dll was actually built and copied
-          if (-not (Test-Path (Join-Path $dist "ggml-cuda.dll"))) {
-            throw "ggml-cuda.dll was not found in build output!"
+          # Verify essential binaries and dynamic backends were produced.
+          $requiredBuiltFiles = @(
+            "llama-cli.exe",
+            "llama-server.exe",
+            "ggml-cuda.dll"
+          )
+          foreach ($file in $requiredBuiltFiles) {
+            $builtPath = Join-Path $dist $file
+            if (-not (Test-Path $builtPath)) {
+              throw "Required build artifact missing: $builtPath"
+            }
           }
+
+          # Remove any intermediate .lib or .exp files if present so the distribution stays clean.
+          Get-ChildItem -Path $dist -Include *.lib, *.exp, *.pdb -Recurse | Remove-Item -Force -ErrorAction SilentlyContinue
 
           # CUDA 12 runtime DLLs needed by ggml-cuda.
           $cudaBin = Join-Path $env:CUDA_PATH "bin"
@@ -142,7 +158,8 @@ jobs:
           & (Join-Path $dist "llama-server.exe") --version
           if ($LASTEXITCODE -ne 0) { throw "llama-server smoke test failed" }
 
-          # Create single ZIP archive.
+          # Create exactly one ZIP archive. Upload-artifact is configured below
+          # to upload this file as-is rather than wrapping it in another ZIP.
           $archive = Join-Path $env:GITHUB_WORKSPACE "llama-windows-x64-cuda12.4.zip"
           if (Test-Path $archive) { Remove-Item $archive -Force }
           Push-Location $dist
@@ -157,10 +174,11 @@ jobs:
           }
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
-          name: llama-windows-x64-cuda12.4
+          name: llama-windows-x64-cuda12.4.zip
           path: llama-windows-x64-cuda12.4.zip
+          archive: false
           if-no-files-found: error
           retention-days: 14
 
@@ -173,7 +191,7 @@ jobs:
 
     steps:
       - name: Checkout llama.cpp
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: ggml-org/llama.cpp
           ref: ${{ inputs.llama_ref || 'master' }}
@@ -194,10 +212,11 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
+          # Do not apt-install cmake; GitHub runners already include CMake >= 3.31 in /usr/local/bin
           sudo apt-get install -y build-essential ninja-build ccache libssl-dev p7zip-full
 
       - name: Install CUDA 12.4
-        uses: Jimver/cuda-toolkit@v0.2.22
+        uses: Jimver/cuda-toolkit@v0.2.36
         with:
           cuda: "12.4.1"
           method: network
@@ -212,6 +231,7 @@ jobs:
 
       - name: Configure CMake
         run: |
+          # lightning-indexer instantiates half dequantizers; FP16_AVAILABLE starts at sm_60.
           cmake \
             -S llama.cpp \
             -B build \
@@ -226,7 +246,7 @@ jobs:
             -DGGML_CPU_ALL_VARIANTS=ON \
             -DGGML_CUDA=ON \
             -DCMAKE_CUDA_ARCHITECTURES="60-virtual;61-virtual;70-virtual;75-virtual;80-virtual;86-real;89-real;90-virtual" \
-            -DGGML_CUDA_CCCL_VERSION=v3.4.3 \
+            -DGGML_CUDA_CCCL_VERSION="v3.4.3" \
             -DGGML_CUDA_NCCL=OFF \
             -DLLAMA_BUILD_TESTS=OFF \
             -DLLAMA_BUILD_TOOLS=ON \
@@ -236,7 +256,7 @@ jobs:
 
       - name: Build
         run: |
-          # Omit restrictive --target so dynamic backend modules (libggml-cuda.so, libggml-cpu-*.so) are built
+          # Build all enabled targets so libggml-cuda.so and libggml-cpu-*.so dynamic backends are built.
           cmake --build build --config Release --parallel
 
       - name: Package and smoke test
@@ -251,10 +271,13 @@ jobs:
           cp -a build/bin/. "$DIST/"
           cp llama.cpp/LICENSE "$DIST/"
 
-          if [[ ! -f "$DIST/libggml-cuda.so" ]]; then
-            echo "libggml-cuda.so was not found in build output!" >&2
-            exit 1
-          fi
+          # Verify essential binaries and dynamic backends were produced.
+          for file in llama-cli llama-server libggml-cuda.so; do
+            if [[ ! -e "$DIST/$file" ]]; then
+              echo "Required build artifact missing: $DIST/$file" >&2
+              exit 1
+            fi
+          done
 
           # Bundle the CUDA runtime libraries required by ggml-cuda.
           CUDA_ROOT="${CUDA_PATH:-$(dirname "$(dirname "$(readlink -f "$(command -v nvcc)")")")}"
@@ -281,15 +304,17 @@ jobs:
           "$DIST/llama-cli" --version
           "$DIST/llama-server" --version
 
-          # Create ZIP archive
+          # Match the Windows package format and avoid a nested artifact ZIP.
           ARCHIVE="$GITHUB_WORKSPACE/llama-linux-x64-cuda12.4.zip"
+          rm -f "$ARCHIVE"
           (cd "$DIST" && 7z a -tzip -mx=9 -snl "$ARCHIVE" .)
           7z t "$ARCHIVE"
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
-          name: llama-linux-x64-cuda12.4
+          name: llama-linux-x64-cuda12.4.zip
           path: llama-linux-x64-cuda12.4.zip
+          archive: false
           if-no-files-found: error
           retention-days: 14
